@@ -123,7 +123,7 @@ class App(Service):
         beacon.as_graph().to_dot(o)
         graph, = pydot.graph_from_dot_data(o.getvalue())
         print('WRITING GRAPH TO image.png')
-        with open('image.png', 'wb') as fh:
+        with open('image.png', 'w+b') as fh:
             fh.write(graph.create_png())
 
     @cached_property
