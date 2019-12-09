@@ -62,6 +62,7 @@ if typing.TYPE_CHECKING:  # pragma: no cover
     )
     from .utils.objects import label, shortlabel                  # noqa: E402
     from .worker import Worker                                    # noqa: E402
+    from .mixins import LoggingMixin                              # noqa: E402
 
 __all__ = [
     'BaseSignal',
@@ -110,6 +111,7 @@ all_by_module: Mapping[str, Sequence[str]] = {
     'mode.utils.logging': ['flight_recorder', 'get_logger', 'setup_logging'],
     'mode.utils.objects': ['label', 'shortlabel'],
     'mode.worker': ['Worker'],
+    'mode.mixins': ['LoggingMixin'],
 }
 
 object_origins = {}

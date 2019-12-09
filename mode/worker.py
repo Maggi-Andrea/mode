@@ -4,7 +4,6 @@ Workers add signal handling, logging, and other things
 required to start and manage services in a process environment.
 """
 import asyncio
-import logging as _logging
 import os
 import reprlib
 import signal
@@ -12,7 +11,6 @@ import sys
 import traceback
 import typing
 from contextlib import contextmanager, suppress
-from logging import Logger, StreamHandler
 from typing import (
     Any,
     ClassVar,
@@ -23,7 +21,6 @@ from typing import (
     List,
     Optional,
     Tuple,
-    Union,
     cast,
 )
 
@@ -34,6 +31,8 @@ from .utils.futures import all_tasks, maybe_cancel
 from .utils.imports import symbol_by_name
 from .utils.times import Seconds
 from .utils.typing import NoReturn
+
+from .mixins import LoggingMixin
 
 if typing.TYPE_CHECKING:
     from .debug import BlockingDetector
@@ -75,23 +74,14 @@ def exiting(*,
     sys.exit(EX_OK)
 
 
-class Worker(Service):
+class Worker(LoggingMixin, Service):
     """Start mode service from the command-line."""
 
     BLOCK_DETECTOR: ClassVar[str] = BLOCK_DETECTOR
 
-    stdout: IO
-    stderr: IO
     debug: bool
-    quiet: bool
     blocking_timeout: Seconds
-    logging_config: Optional[Dict]
-    loglevel: Optional[Union[str, int]]
-    logfile: Optional[Union[str, IO]]
     console_port: int
-    loghandlers: List[StreamHandler]
-    redirect_stdouts: bool
-    redirect_stdouts_level: int
 
     services: Iterable[ServiceT]
 
@@ -107,38 +97,13 @@ class Worker(Service):
     def __init__(
             self, *services: ServiceT,
             debug: bool = False,
-            quiet: bool = False,
-            logging_config: Dict = None,
-            loglevel: Union[str, int] = None,
-            logfile: Union[str, IO] = None,
-            redirect_stdouts: bool = True,
-            redirect_stdouts_level: logging.Severity = None,
-            stdout: IO = sys.stdout,
-            stderr: IO = sys.stderr,
             console_port: int = 50101,
-            loghandlers: List[StreamHandler] = None,
             blocking_timeout: Seconds = 10.0,
             loop: asyncio.AbstractEventLoop = None,
-            override_logging: bool = True,
             daemon: bool = True,
             **kwargs: Any) -> None:
         self.services = services
         self.debug = debug
-        self.quiet = quiet
-        self.logging_config = logging_config
-        self.loglevel = loglevel
-        self.logfile = logfile
-        self.loghandlers = loghandlers or []
-        self.redirect_stdouts = redirect_stdouts
-        self.redirect_stdouts_level = logging.level_number(
-            redirect_stdouts_level or 'WARN')
-        self.override_logging = override_logging
-        if stdout is None:
-            stdout = sys.stdout
-        self.stdout = stdout
-        if stderr is None:
-            stderr = sys.stderr
-        self.stderr = stderr
         self.console_port = console_port
         self.blocking_timeout = blocking_timeout
         self.daemon = daemon
@@ -149,24 +114,6 @@ class Worker(Service):
                 service.beacon.reattach(self.beacon)
                 assert service.beacon.root is self.beacon
 
-    def say(self, msg: str) -> None:
-        """Write message to standard out."""
-        self._say(msg)
-
-    def carp(self, msg: str) -> None:
-        """Write warning to standard err."""
-        self._say(msg, file=self.stderr)
-
-    def _say(self,
-             msg: str,
-             file: Optional[IO] = None,
-             end: str = '\n',
-             **kwargs: Any) -> None:
-        if file is None:
-            file = self.stdout
-        if not self.quiet:
-            print(msg, file=file, end=end, **kwargs)  # noqa: T003
-
     def on_init_dependencies(self) -> Iterable[ServiceT]:
         return self.services
 
@@ -174,44 +121,14 @@ class Worker(Service):
         await self.default_on_first_start()
 
     async def default_on_first_start(self) -> None:
-        if self.override_logging:
-            self._setup_logging()
+        self.setup_logging()
+        self.setup_redirect_stdouts()
         await self.on_execute()
         if self.debug:
             await self._add_monitor()
         self.install_signal_handlers()
 
     async def on_execute(self) -> None:
-        ...
-
-    def _setup_logging(self) -> None:
-        _loglevel: int = 0
-        try:
-            _loglevel = logging.setup_logging(
-                loglevel=self.loglevel,
-                logfile=self.logfile,
-                logging_config=self.logging_config,
-                loghandlers=self.loghandlers,
-            )
-        except Exception as exc:
-            try:
-                self.stderr.write(f'CANNOT SETUP LOGGING: {exc!r} from ')
-                import traceback
-                traceback.print_stack(file=self.stderr)
-            except Exception:
-                pass
-            raise
-        self.on_setup_root_logger(_logging.root, _loglevel)
-        if self.redirect_stdouts:
-            self._redirect_stdouts()
-
-    def _redirect_stdouts(self) -> None:
-        self.add_context(
-            logging.redirect_stdouts(severity=self.redirect_stdouts_level))
-
-    def on_setup_root_logger(self,
-                             logger: Logger,
-                             level: int) -> None:
         ...
 
     async def maybe_start_blockdetection(self) -> None:
@@ -230,7 +147,7 @@ class Worker(Service):
     def _install_signal_handlers_unix(self) -> None:
         self.loop.add_signal_handler(signal.SIGINT, self._on_sigint)
         self.loop.add_signal_handler(signal.SIGTERM, self._on_sigterm)
-        self.loop.add_signal_handler(signal.SIGUSR1, self._on_sigusr1)
+        self.loop.add_signal_handler(signal.SIGUSR1, self._on_sigusr1) #@UndefinedVariable
 
     def _on_sigint(self) -> None:
         self.carp('-INT- -INT- -INT- -INT- -INT- -INT-')
@@ -330,6 +247,7 @@ class Worker(Service):
             task.cancel()
 
     async def on_started(self) -> None:
+        self.log.info('Service started (hit ctrl+C to exit).')
         if self.daemon:
             await self.wait_until_stopped()
 
