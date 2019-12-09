@@ -56,7 +56,7 @@ class Node(NodeT[_T]):
         """Create new node from this node."""
         node = self._new_node(
             data,
-            root=self.root if self.root is not None else self,
+            root=self.root or self,
             parent=self,
         )
         self.children.append(node)
@@ -64,7 +64,7 @@ class Node(NodeT[_T]):
 
     def reattach(self, parent: NodeT[_T]) -> NodeT[_T]:
         """Attach this node to `parent` node."""
-        self.root = parent.root if parent.root is not None else parent
+        self.root = parent.root or parent
         self.parent = parent
         parent.add(self)
         return self
