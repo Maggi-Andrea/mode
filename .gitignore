@@ -33,3 +33,4 @@ htmlcov/
 *-cache*
 .pyre/
 .python-version
+/.settings/
