@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """AsyncIO Service-based programming."""
-# :copyright: (c) 2017-2019, Robinhood Markets
+# :copyright: (c) 2017-2020, Robinhood Markets
 #             All rights reserved.
 # :license:   BSD (3 Clause), see LICENSE for more details.
 import re
@@ -8,7 +8,7 @@ import sys
 import typing
 from typing import Any, Mapping, NamedTuple, Sequence
 
-__version__ = '4.1.4'
+__version__ = '4.2.0'
 __author__ = 'Robinhood Markets'
 __contact__ = 'opensource@robinhood.com'
 __homepage__ = 'https://github.com/ask/mode'

@@ -52,13 +52,13 @@ class WorkerThread(threading.Thread):
     """Thread class used for services running in a dedicated thread."""
 
     service: 'ServiceThread'
-    _is_stopped: threading.Event
+    is_stopped: threading.Event
 
     def __init__(self, service: 'ServiceThread', **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.service = service
         self.daemon = False
-        self._is_stopped = threading.Event()
+        self.is_stopped = threading.Event()
 
     def run(self) -> None:
         try:
@@ -68,14 +68,14 @@ class WorkerThread(threading.Thread):
 
     def _set_stopped(self) -> None:
         try:
-            self._is_stopped.set()
+            self.is_stopped.set()
         except TypeError:  # pragma: no cover
             # we lost the race at interpreter shutdown,
             # so gc collected built-in modules.
             pass
 
     def stop(self) -> None:
-        self._is_stopped.wait()
+        self.is_stopped.wait()
         if self.is_alive():
             self.join(threading.TIMEOUT_MAX)
 
@@ -150,14 +150,17 @@ class ServiceThread(Service):
     def _new_shutdown_event(self) -> Event:
         return Event(loop=self.parent_loop)
 
-    async def maybe_start(self) -> None:
+    async def maybe_start(self) -> bool:
         if not self._thread_started.is_set():
             await self.start()
+            return True
+        return False
 
     async def start(self) -> None:
         assert not self._thread_started.is_set()
         self._thread_started.set()
         self._thread_running = asyncio.Future(loop=self.parent_loop)
+        self.add_future(self._keepalive2())
         try:
             self._thread = self.Worker(self)
             self._thread.start()
@@ -174,9 +177,18 @@ class ServiceThread(Service):
         finally:
             self._thread_running = None
 
+    async def _keepalive2(self) -> None:
+        while not self.should_stop:
+            await self.sleep(1.1)
+            asyncio.run_coroutine_threadsafe(self.sleep(1.0), self.thread_loop)
+
     async def crash(self, exc: BaseException) -> None:
-        if self._thread_running and not self._thread_running.done():
-            self._thread_running.set_exception(exc)  # <- .start() will raise
+        # <- .start() will raise
+        if asyncio.get_event_loop() is self.parent_loop:
+            maybe_set_exception(self._thread_running, exc)
+        else:
+            self.parent_loop.call_soon_threadsafe(
+                maybe_set_exception, self._thread_running, exc)
         await super().crash(exc)
 
     def _start_thread(self) -> None:
@@ -193,6 +205,8 @@ class ServiceThread(Service):
     async def stop(self) -> None:
         if self._started.is_set():
             await super().stop()
+            if self._thread is not None:
+                self._thread.stop()
 
     async def _stop_children(self) -> None:
         ...   # called by thread instead of .stop()
@@ -204,12 +218,10 @@ class ServiceThread(Service):
         ...   # called by thread instead of .stop()
 
     async def _shutdown_thread(self) -> None:
-        await self._default_stop_children()
         await self.on_thread_stop()
+        await self._default_stop_children()
         self.set_shutdown()
         await self._default_stop_futures()
-        if self._thread is not None:
-            self._thread.stop()
         await self._default_stop_exit_stacks()
 
     async def _serve(self) -> None:
@@ -219,7 +231,7 @@ class ServiceThread(Service):
             # allow ServiceThread.start() to return
             # when wait_for_thread is enabled.
             await self.on_thread_started()
-            notify(self._thread_running)
+            self.parent_loop.call_soon_threadsafe(notify, self._thread_running)
             await self.wait_until_stopped()
         except asyncio.CancelledError:
             raise
@@ -236,7 +248,7 @@ class ServiceThread(Service):
     async def _thread_keepalive(self) -> None:
         async for sleep_time in self.itertimer(
                 1.0,
-                name='_thread_keepalive',
+                name=f'_thread_keepalive-{self.label}',
                 loop=self.thread_loop):  # pragma: no cover
             # The consumer thread will have a separate event loop,
             # and so we use this trick to make sure our loop is
@@ -276,6 +288,10 @@ class MethodQueueWorker(Service):
             if not method_queue.should_stop:
                 item = await get()
                 await process_enqueued(item)
+
+    @property
+    def label(self) -> str:
+        return f'{type(self).__name__}@{id(self):#x} index={self.index}'
 
 
 class MethodQueue(Service):
@@ -345,6 +361,10 @@ class MethodQueue(Service):
             else:
                 maybe_set_result(promise, result)
         return promise
+
+    @property
+    def label(self) -> str:
+        return f'{type(self).__name__}@{id(self):#x}'
 
 
 class QueueServiceThread(ServiceThread):

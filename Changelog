@@ -4,7 +4,88 @@
  Change history
 ================
 
-.. _version-4.1.3:
+.. _version-4.2.0:
+
+4.2.0
+=====
+:release-date: 2020-01-15 5:00 P.M PST
+:release-by: Ask Solem (:github_user:`ask`)
+
+- Timers: Exclude timer callback time in drift calculation
+
+- Service: `maybe_start()` now returns bool, and :const:`True`
+  if the service was started.
+
+.. _version-4.1.9:
+
+4.1.9
+=====
+:release-date: 2020-01-13 11:18 P.M PST
+:release-by: Ask Solem (:github_user:`ask`)
+
+- QueueServiceThread: Stop method queue before stopping child services.
+
+- Small fixes to render graph images correctly.
+
+.. _version-4.1.8:
+
+4.1.8
+=====
+:release-date: 2020-01-07 4:00 P.M PST
+:release-by: Ask Solem (:github_user:`ask`)
+
+- ``ServiceThread.crash()`` now immediately sets exception
+  when called in main thread.
+
+.. _version-4.1.7:
+
+4.1.7
+=====
+:release-date: 2020-01-07 3:20 P.M PST
+:release-by: Ask Solem (:github_user:`ask`)
+
+- Now depends on :pypi:`typing_extensions` (Issue #53)
+
+    This dependency was previously missing resulting in errors.
+
+- Fixed :class:`~mode.threads.ServiceThread` hang on exceptions raised
+  (Issue #54).
+
+    Contributed by Alexey Basov (:github_user:`r313pp`)
+    and Jonathan Booth (:github_user:`jbooth-mastery`).
+
+
+
+.. _version-4.1.6:
+
+4.1.6
+=====
+:release-date: 2019-12-12 2:30 P.M PST
+:release-by: Ask Solem (:github_user:`ask`)
+
+- logging: Fixes recursion error on Python 3.6 (Issue #52)
+
+- Makefile: Added `make develop` to install dependencies into the currently
+    activated virtualenv.
+
+- Tests: Removed `was never awaited` warning during test run.
+
+- CI: Revert back to using Python 3.7.5 for Windows build.
+
+.. _version-4.1.5:
+
+4.1.5
+=====
+:release-date: 2019-12-11 3:45 P.M PST
+:release-by: Ask Solem (:github_user:`ask`)
+
+- Tests passing on Python 3.8.0
+
+- Fixed typing related issues.
+
+- Added :file:`__init__.py` to `mode.utils` package.
+
+.. _version-4.1.4:
 
 4.1.4
 =====

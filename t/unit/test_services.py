@@ -4,6 +4,7 @@ from mode import Service
 from mode.services import Diag, ServiceTask, WaitResult
 from mode.utils.logging import get_logger
 from mode.utils.mocks import (
+    ANY,
     AsyncContextManagerMock,
     AsyncMock,
     ContextMock,
@@ -69,8 +70,8 @@ class test_ServiceTask:
 async def test_start_stop():
     s = S()
     assert s.state == 'init'
-    await s.maybe_start()
-    await s.maybe_start()
+    assert await s.maybe_start()
+    assert not await s.maybe_start()
     assert s.state == 'running'
     s.on_started_log.assert_called_with()
     await s.stop()
@@ -246,7 +247,7 @@ class test_Service:
         service.add_dependency(m)
 
     @pytest.mark.asyncio
-    async def test_add_runtimne_dependency__when_started(self, *, service):
+    async def test_add_runtime_dependency__when_started(self, *, service):
         s2 = Mock(maybe_start=AsyncMock())
         service.add_dependency = Mock()
         service._started.set()
@@ -255,7 +256,7 @@ class test_Service:
         s2.maybe_start.coro.assert_called_once_with()
 
     @pytest.mark.asyncio
-    async def test_add_runtimne_dependency__not_started(self, *, service):
+    async def test_add_runtime_dependency__not_started(self, *, service):
         s2 = Mock(maybe_start=AsyncMock())
         service.add_dependency = Mock()
         service._started.clear()
@@ -528,7 +529,7 @@ class test_Service:
 
     @pytest.mark.asyncio
     async def test_wait_many(self, *, service):
-        with patch('asyncio.wait') as wait:
+        with patch('asyncio.wait', AsyncMock()) as wait:
             service._wait_one = AsyncMock()
             m1 = AsyncMock()
             m2 = AsyncMock()
@@ -543,7 +544,7 @@ class test_Service:
             )
 
             service._wait_one.assert_called_once_with(
-                wait.return_value, timeout=3.34)
+                ANY, timeout=3.34)
 
     @pytest.mark.asyncio
     async def test_wait_first__propagates_exceptions(self, *, service):
@@ -651,75 +652,102 @@ class test_Service:
     @pytest.mark.asyncio
     async def test__gather_futures__raises_cancel(self, *, service):
         service._futures = [Mock()]
-        service._wait_for_futures = AsyncMock()
+        service._maybe_wait_for_futures = AsyncMock()
 
         def on_wait_for_futures(**kwargs):
-            if service._wait_for_futures.call_count >= 3:
+            if service._maybe_wait_for_futures.call_count >= 3:
                 service._futures.clear()
             raise asyncio.CancelledError()
-        service._wait_for_futures.coro.side_effect = on_wait_for_futures
+        service._maybe_wait_for_futures.coro.side_effect = on_wait_for_futures
 
         await service._gather_futures()
 
-        assert service._wait_for_futures.call_count == 3
+        assert service._maybe_wait_for_futures.call_count == 3
 
     @pytest.mark.asyncio
-    async def test__wait_for_futures__ValueError_left(self, *, service):
+    async def test__maybe_wait_for_futures__ValueError_left(self, *, service):
         service._futures = [Mock()]
         with patch('asyncio.shield', AsyncMock()) as shield:
             with patch('asyncio.wait', AsyncMock()):
-                shield.coro.side_effect = ValueError()
+
+                async def on_shield(fut, *args, **kwargs):
+                    # if we don't wait for coroutine passed to shield
+                    # we get 'was never awaited' warning.
+                    await fut
+                    raise ValueError()
+
+                shield.coro.side_effect = on_shield
                 with pytest.raises(ValueError):
-                    await service._wait_for_futures()
+                    await service._maybe_wait_for_futures()
 
     @pytest.mark.asyncio
-    async def test__wait_for_futures__ValueError_empty(self, *, service):
+    async def test__maybe_wait_for_futures__ValueError_empty(self, *, service):
         service._futures = [Mock()]
         with patch('asyncio.shield', AsyncMock()) as shield:
             with patch('asyncio.wait', AsyncMock()):
 
-                def on_shield(*args, **kwargs):
+                async def on_shield(fut, *args, **kwargs):
+                    # if we don't wait for coroutine passed to shield
+                    # we get 'was never awaited' warning.
+                    await fut
                     service._futures.clear()
                     raise ValueError()
 
                 shield.side_effect = on_shield
-                await service._wait_for_futures()
+                await service._maybe_wait_for_futures()
 
     @pytest.mark.asyncio
-    async def test__wait_for_futures__CancelledError(self, *, service):
+    async def test__maybe_wait_for_futures__CancelledError(self, *, service):
         service._futures = [Mock()]
         with patch('asyncio.shield', AsyncMock()) as shield:
             with patch('asyncio.wait', AsyncMock()):
-                shield.coro.side_effect = asyncio.CancelledError()
-                await service._wait_for_futures()
+
+                async def on_shield(fut, *args, **kwargs):
+                    # if we don't wait for coroutine passed to shield
+                    # we get 'was never awaited' warning.
+                    await fut
+                    raise asyncio.CancelledError()
+
+                shield.coro.side_effect = on_shield
+                await service._maybe_wait_for_futures()
 
     @pytest.mark.asyncio
     async def test_itertimer(self, *, service):
-        with patch('mode.services.timer_intervals') as timer_intervals:
+        with patch('mode.services.Timer') as itertimer:
 
-            timer_intervals.return_value = [
-                1.0, 1.003, 0.995,
-            ]
+            async def on_itertimer(*args, **kwargs):
+                yield 1.0
+                yield 1.003
+                yield 0.995
+
+            itertimer.side_effect = on_itertimer
+
             service.sleep = AsyncMock()
             values = [value async for value in service.itertimer(1.0)]
             assert values == [1.0, 1.003, 0.995]
 
     @pytest.mark.asyncio
     async def test_itertimer__first_stop(self, *, service):
-        with patch('mode.services.timer_intervals') as timer_intervals:
+        with patch('mode.services.Timer') as itertimer:
 
-            def on_timer_intervals(*args, **kwargs):
+            async def on_itertimer(*args, **kwargs):
                 service._stopped.set()
-                return [1.0]
+                yield 1.0
 
-            timer_intervals.side_effect = on_timer_intervals
+            itertimer.side_effect = on_itertimer
             values = [value async for value in service.itertimer(1.0)]
             assert values == []
 
     @pytest.mark.asyncio
     async def test_itertimer__second_stop(self, *, service):
-        with patch('mode.services.timer_intervals') as timer_intervals:
-            timer_intervals.return_value = [0.784512, 0.2, 0.3]
+        with patch('mode.services.Timer') as itertimer:
+
+            async def on_itertimer(*args, **kwargs):
+                for val in [0.784512, 0.2, 0.3]:
+                    await service.sleep(val)
+                    yield val
+
+            itertimer.side_effect = on_itertimer
 
             service.sleep = AsyncMock(name='sleep')
 
@@ -735,8 +763,15 @@ class test_Service:
 
     @pytest.mark.asyncio
     async def test_itertimer__third_stop(self, *, service):
-        with patch('mode.services.timer_intervals') as timer_intervals:
-            timer_intervals.return_value = [0.1341, 0.2, 0.3, 0.4]
+        with patch('mode.services.Timer') as itertimer:
+
+            async def on_itertimer(*args, **kwargs):
+                yield 0.1341
+                yield 0.2
+                yield 0.3
+                yield 0.4
+
+            itertimer.side_effect = on_itertimer
 
             sleep = AsyncMock(name='sleep')
 

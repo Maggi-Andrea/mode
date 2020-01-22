@@ -3,11 +3,15 @@ import abc
 import asyncio
 from typing import (
     Any,
+    Awaitable,
     ContextManager,
+    Coroutine,
     MutableMapping,
     Optional,
     Set,
     Type,
+    TypeVar,
+    Union,
 )
 
 from mode.utils.contexts import AsyncExitStack, ExitStack
@@ -20,6 +24,10 @@ __all__ = [
     'DiagT',
     'ServiceT',
 ]
+
+T = TypeVar('T')
+
+AsyncFun = Union[Awaitable[T], Coroutine[Any, Any, T]]
 
 
 class DiagT(abc.ABC):
@@ -41,7 +49,7 @@ class DiagT(abc.ABC):
         ...
 
 
-class ServiceT(AsyncContextManager):  # type: ignore
+class ServiceT(AsyncContextManager):
     """Abstract type for an asynchronous service that can be started/stopped.
 
     See Also:
@@ -86,7 +94,7 @@ class ServiceT(AsyncContextManager):  # type: ignore
         ...
 
     @abc.abstractmethod
-    async def maybe_start(self) -> None:
+    async def maybe_start(self) -> bool:
         ...
 
     @abc.abstractmethod

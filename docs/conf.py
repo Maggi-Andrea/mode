@@ -15,7 +15,7 @@ globals().update(conf.build_config(
     canonical_url='http://mode.readthedocs.io',
     webdomain='',
     github_project='ask/mode',
-    copyright='2017-2019',
+    copyright='2017-2020',
     html_logo='images/logo.png',
     html_favicon='images/favicon.ico',
     html_prepend_sidebars=[],
@@ -35,8 +35,11 @@ globals().update(conf.build_config(
         'mode.loop.gevent',
         'mode.loop.uvloop',
         'mode.loop._gevent_loop',
+        'mode.utils',
+        'mode.utils._py37_contextlib',
         'mode.utils.graphs.formatter',
         'mode.utils.graphs.graph',
+        'mode.utils.types',
     ],
 ))
 
